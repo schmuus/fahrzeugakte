@@ -383,7 +383,8 @@
       fileText: '<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5M9 13h6M9 17h6M9 9h2"/>',
       receipt: '<path d="M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2Z"/><path d="M8 8h8M8 12h8"/>',
       download: '<path d="M12 3v12M6 11l6 6 6-6M4 21h16"/>',
-      upload: '<path d="M12 21V9M6 13l6-6 6 6M4 3h16"/>'
+      upload: '<path d="M12 21V9M6 13l6-6 6 6M4 3h16"/>',
+      edit: '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="M15 5l4 4"/>'
     };
     return `<svg ${common}>${paths[name] || ""}</svg>`;
   }
@@ -448,7 +449,9 @@
     selectedId: null,
     detailTab: "uebersicht",
     typeFilter: "Alle",
-    modal: null
+    modal: null,
+    editingCostId: null,
+    editingWerkstattId: null
   };
 
   async function loadAll() {
@@ -464,8 +467,13 @@
   function openVehicle(id) { state.view = "detail"; state.selectedId = id; state.detailTab = "uebersicht"; render(); }
   function setTab(tab) { state.detailTab = tab; render(); }
   function setTypeFilter(t) { state.typeFilter = t; render(); }
-  function openModal(name) { state.modal = name; render(); }
-  function closeModal() { state.modal = null; render(); }
+  function openModal(name, id) {
+    state.modal = name;
+    if (name === "editCost") state.editingCostId = id;
+    if (name === "editWerkstatt") state.editingWerkstattId = id;
+    render();
+  }
+  function closeModal() { state.modal = null; state.editingCostId = null; state.editingWerkstattId = null; render(); }
 
   async function saveVehicle(data, id) {
     const v = { ...data, id: id || uid() };
@@ -489,11 +497,11 @@
     render();
   }
 
-  async function addCost(data) {
-    const c = { ...data, id: uid(), vehicleId: state.selectedId, amount: Number(data.amount) || 0 };
+  async function saveCost(data, id) {
+    const c = { ...data, id: id || uid(), vehicleId: state.selectedId, amount: Number(data.amount) || 0 };
     await dbPut("costs", c);
     await loadAll();
-    state.modal = null;
+    state.modal = null; state.editingCostId = null;
     render();
   }
   async function deleteCost(id) {
@@ -501,11 +509,11 @@
     await loadAll();
     render();
   }
-  async function addWerkstatt(data) {
-    const w = { ...data, id: uid(), vehicleId: state.selectedId, kosten: Number(data.kosten) || 0 };
+  async function saveWerkstatt(data, id) {
+    const w = { ...data, id: id || uid(), vehicleId: state.selectedId, kosten: Number(data.kosten) || 0 };
     await dbPut("werkstatt", w);
     await loadAll();
-    state.modal = null;
+    state.modal = null; state.editingWerkstattId = null;
     render();
   }
   async function deleteWerkstatt(id) {
@@ -736,7 +744,7 @@
       body = `<button class="btn btn-primary btn-block" data-action="open-add-cost" style="margin-bottom:14px;">${icon("plus", { size: 16 })} Kosten erfassen</button>`;
       if (vCosts.length === 0) body += `<div style="color:var(--muted);font-size:13px;">Noch keine Einträge.</div>`;
       body += vCosts.map(c => `
-        <div class="list-item">
+        <div class="list-item" data-action="edit-cost" data-id="${c.id}" style="cursor:pointer;">
           <span class="dot" style="background:${CAT_COLOR[c.category] || "#8E9295"};"></span>
           <div class="main">
             <div class="title">${esc(c.category)}${c.note ? " · " + esc(c.note) : ""}</div>
@@ -749,7 +757,7 @@
       body = `<button class="btn btn-primary btn-block" data-action="open-add-werkstatt" style="margin-bottom:14px;">${icon("plus", { size: 16 })} Werkstatt-Eintrag</button>`;
       if (vWerk.length === 0) body += `<div style="color:var(--muted);font-size:13px;">Noch keine Einträge.</div>`;
       body += vWerk.map(w => `
-        <div class="werk-item">
+        <div class="werk-item" data-action="edit-werkstatt" data-id="${w.id}" style="cursor:pointer;">
           <div class="top">
             <div class="desc">${esc(w.beschreibung)}</div>
             <button class="icon-btn" data-action="delete-werkstatt" data-id="${w.id}">${icon("x", { size: 14, color: "#5A5D60" })}</button>
@@ -848,33 +856,37 @@
     `;
   }
 
-  function renderCostForm() {
+  function renderCostForm(c) {
+    c = c || {};
     return `
       <form data-form="cost">
-        ${fieldInput({ label: "Datum", name: "date", value: todayISO(), type: "date" })}
+        <input type="hidden" name="id" value="${c.id || ""}">
+        ${fieldInput({ label: "Datum", name: "date", value: c.date || todayISO(), type: "date" })}
         <div class="field"><label>Kategorie</label>
-          <select name="category">${CATS.map(c => `<option value="${c}">${c}</option>`).join("")}</select>
+          <select name="category">${CATS.map(cat => `<option value="${cat}" ${c.category === cat ? "selected" : ""}>${cat}</option>`).join("")}</select>
         </div>
-        ${fieldInput({ label: "Betrag (€)", name: "amount", type: "number", step: "0.01", placeholder: "45.90" })}
-        ${fieldInput({ label: "Notiz (optional)", name: "note", placeholder: "Tankstelle Aral" })}
+        ${fieldInput({ label: "Betrag (€)", name: "amount", value: c.amount, type: "number", step: "0.01", placeholder: "45.90" })}
+        ${fieldInput({ label: "Notiz (optional)", name: "note", value: c.note, placeholder: "Tankstelle Aral" })}
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" data-action="close-modal">Abbrechen</button>
-          <button type="submit" class="btn btn-primary">Eintragen</button>
+          <button type="submit" class="btn btn-primary">${c.id ? "Speichern" : "Eintragen"}</button>
         </div>
       </form>
     `;
   }
 
-  function renderWerkstattForm() {
+  function renderWerkstattForm(w) {
+    w = w || {};
     return `
       <form data-form="werkstatt">
-        ${fieldInput({ label: "Datum", name: "date", value: todayISO(), type: "date" })}
-        ${fieldInput({ label: "Werkstatt", name: "werkstatt", placeholder: "Meisterwerkstatt Schmidt" })}
-        ${fieldInput({ label: "Was wurde gemacht?", name: "beschreibung", placeholder: "Ölwechsel, Bremsbeläge vorne" })}
-        ${fieldInput({ label: "Kosten (€)", name: "kosten", type: "number", step: "0.01" })}
+        <input type="hidden" name="id" value="${w.id || ""}">
+        ${fieldInput({ label: "Datum", name: "date", value: w.date || todayISO(), type: "date" })}
+        ${fieldInput({ label: "Werkstatt", name: "werkstatt", value: w.werkstatt, placeholder: "Meisterwerkstatt Schmidt" })}
+        ${fieldInput({ label: "Was wurde gemacht?", name: "beschreibung", value: w.beschreibung, placeholder: "Ölwechsel, Bremsbeläge vorne" })}
+        ${fieldInput({ label: "Kosten (€)", name: "kosten", value: w.kosten, type: "number", step: "0.01" })}
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" data-action="close-modal">Abbrechen</button>
-          <button type="submit" class="btn btn-primary">Eintragen</button>
+          <button type="submit" class="btn btn-primary">${w.id ? "Speichern" : "Eintragen"}</button>
         </div>
       </form>
     `;
@@ -888,7 +900,14 @@
       const v = state.vehicles.find(x => x.id === state.selectedId);
       title = "Fahrzeug bearbeiten"; content = renderVehicleForm(v); wide = true;
     } else if (state.modal === "addCost") { title = "Kosten erfassen"; content = renderCostForm(); }
-    else if (state.modal === "addWerkstatt") { title = "Werkstatt-Eintrag"; content = renderWerkstattForm(); }
+    else if (state.modal === "editCost") {
+      const c = state.costs.find(x => x.id === state.editingCostId);
+      title = "Kosten bearbeiten"; content = renderCostForm(c);
+    } else if (state.modal === "addWerkstatt") { title = "Werkstatt-Eintrag"; content = renderWerkstattForm(); }
+    else if (state.modal === "editWerkstatt") {
+      const w = state.werkstatt.find(x => x.id === state.editingWerkstattId);
+      title = "Werkstatt-Eintrag bearbeiten"; content = renderWerkstattForm(w);
+    }
 
     return `<div class="modal-backdrop" data-action="close-modal">
       <div class="modal-box ${wide ? "wide" : ""}" data-stop>
@@ -933,6 +952,8 @@
       case "delete-vehicle": deleteVehicleConfirm(el.dataset.id); break;
       case "open-add-cost": openModal("addCost"); break;
       case "open-add-werkstatt": openModal("addWerkstatt"); break;
+      case "edit-cost": openModal("editCost", el.dataset.id); break;
+      case "edit-werkstatt": openModal("editWerkstatt", el.dataset.id); break;
       case "delete-cost": deleteCost(el.dataset.id); break;
       case "delete-werkstatt": deleteWerkstatt(el.dataset.id); break;
       case "export-data": exportData(); break;
@@ -974,10 +995,14 @@
       saveVehicle(fd, id);
     } else if (form.dataset.form === "cost") {
       if (!fd.amount) { alert("Bitte einen Betrag angeben."); return; }
-      addCost(fd);
+      const id = fd.id || null;
+      delete fd.id;
+      saveCost(fd, id);
     } else if (form.dataset.form === "werkstatt") {
       if (!fd.beschreibung) { alert("Bitte eine Beschreibung angeben."); return; }
-      addWerkstatt(fd);
+      const id = fd.id || null;
+      delete fd.id;
+      saveWerkstatt(fd, id);
     }
   });
 
