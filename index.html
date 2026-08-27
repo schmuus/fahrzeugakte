@@ -263,6 +263,16 @@ const firebaseConfig = {
   appId: "1:163037370928:web:b4a5ca1b77d6f49ce7abf5"
 };
 
+/* ============================================================
+   ZUGANGSBESCHRÄNKUNG (zusätzlich zu den Firestore-Regeln)
+   Wichtig, wenn dieses Projekt auch für andere Apps genutzt wird:
+   Firebase Authentication ist PROJEKTWEIT, nicht pro App. Andere
+   Nutzer, die bereits im selben Projekt registriert sind, könnten
+   sich sonst auch hier anmelden. Trage unten deine eigene E-Mail
+   ein — nur dieses Konto darf die App danach nutzen.
+   ============================================================ */
+const ALLOWED_EMAIL = "marcokkirchi@web.de";
+
 if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
   document.getElementById("app").innerHTML = `
     <div class="loading-screen" style="flex-direction:column;gap:14px;text-align:center;padding:24px;">
@@ -282,8 +292,9 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
   "use strict";
 
   /* ================= FIRESTORE DATA LAYER ================= */
-  // Jede Sammlung liegt unter users/{uid}/... – siehe Firestore-Regeln
-  function userPath(sub) { return `users/${state.user.uid}/${sub}`; }
+  // Jede Sammlung liegt unter fahrzeugakte/{uid}/... – bewusst NICHT unter
+  // "users", da dieser Name im bestehenden SimRacing-Projekt bereits belegt ist.
+  function userPath(sub) { return `fahrzeugakte/${state.user.uid}/${sub}`; }
 
   let unsubVehicles = null, unsubCosts = null, unsubWerkstatt = null;
 
@@ -1078,6 +1089,16 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
 
   /* ================= INIT ================= */
   onAuthStateChanged(auth, (user) => {
+    if (user && ALLOWED_EMAIL && ALLOWED_EMAIL !== "DEINE_EMAIL@BEISPIEL.DE" && user.email !== ALLOWED_EMAIL) {
+      // Fremdes Konto im selben Firebase-Projekt: sofort wieder abmelden.
+      signOut(auth);
+      state.authChecked = true;
+      state.user = null;
+      state.authError = "Dieses Konto hat keinen Zugriff auf die Fahrzeugakte.";
+      state.authBusy = false;
+      render();
+      return;
+    }
     state.user = user;
     state.authChecked = true;
     state.authError = null;
