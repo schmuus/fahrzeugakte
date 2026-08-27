@@ -912,7 +912,7 @@
       title = "Werkstatt-Eintrag bearbeiten"; content = renderWerkstattForm(w);
     }
 
-    return `<div class="modal-backdrop" data-action="close-modal">
+    return `<div class="modal-backdrop">
       <div class="modal-box ${wide ? "wide" : ""}" data-stop>
         <div class="modal-head"><h2>${title}</h2>
           <button class="icon-btn" style="background:var(--surface2);border-radius:8px;" data-action="close-modal">${icon("x", { size: 18 })}</button>
