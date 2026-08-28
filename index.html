@@ -190,11 +190,12 @@
   .field label {
     display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 500;
   }
-  .field input, .field select {
+  .field input, .field select, .field textarea {
     width: 100%; background: var(--surface2); border: 1px solid transparent; border-radius: 10px;
     padding: 11px 12px; color: var(--paper); font-size: 15px; font-family: var(--font-body); outline: none;
   }
-  .field input:focus, .field select:focus { border-color: var(--blue); background: var(--surface); box-shadow: 0 0 0 3px rgba(0,122,255,0.15); }
+  .field textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--blue); background: var(--surface); box-shadow: 0 0 0 3px rgba(0,122,255,0.15); }
   .field-row { display: flex; gap: 10px; }
   .field-row .field { flex: 1; }
   .form-divider { border-top: 1px solid var(--border-soft); margin: 16px 0; padding-top: 14px; }
@@ -629,7 +630,8 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
     const statusHtml = meta.hasTuv
       ? statusPill(tuvStatus)
       : `<span class="type-badge-tag" style="color:${meta.color};border:1px solid ${meta.color}55;background:${meta.color}18;">${meta.label}</span>`;
-    return `<div class="vcard" tabindex="0" data-action="open-vehicle" data-id="${v.id}">
+    return `<div class="vcard" tabindex="0" data-action="open-vehicle" data-id="${v.id}"
+      style="border-left:3px solid ${meta.color}66; background:linear-gradient(${meta.color}0D, ${meta.color}0D), var(--surface);">
       ${badge}
       <div style="flex:1;min-width:0;">
         <div class="vcard-name">${esc(v.name || (v.brand + " " + v.model))}</div>
@@ -776,6 +778,10 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
           <div class="kv-row"><span class="k">Erstzulassung</span><span class="v">${fmtDate(v.erstzulassung)}</span></div>
           <div class="kv-row"><span class="k">Kilometerstand</span><span class="v">${v.km ? Number(v.km).toLocaleString("de-DE") + " km" : "—"}</span></div>
         </div>
+        ${v.notiz ? `<div class="card">
+          <div class="section-label">Notizen</div>
+          <div style="font-size:14px;color:var(--paper);white-space:pre-wrap;line-height:1.5;">${esc(v.notiz)}</div>
+        </div>` : ""}
         <button class="btn btn-danger btn-block" data-action="delete-vehicle" data-id="${v.id}" style="margin-top:20px;">${icon("trash", { size: 15 })} Fahrzeug löschen</button>
       `;
     } else if (state.detailTab === "termine") {
@@ -844,6 +850,11 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
         placeholder="${esc(opts.placeholder || "")}" ${opts.step ? 'step="' + opts.step + '"' : ""}>
     </div>`;
   }
+  function fieldTextarea(opts) {
+    return `<div class="field"><label>${opts.label}</label>
+      <textarea name="${opts.name}" placeholder="${esc(opts.placeholder || "")}" rows="${opts.rows || 3}">${esc(opts.value || "")}</textarea>
+    </div>`;
+  }
 
   function renderVehicleForm(v) {
     v = v || {};
@@ -901,6 +912,11 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
             ${fieldInput({ label: "Betrag / Jahr (€)", name: "steuerBetrag", value: v.steuerBetrag, type: "number", step: "0.01" })}
             ${fieldInput({ label: "Nächste Abbuchung", name: "steuerFaelligkeit", value: v.steuerFaelligkeit, type: "date" })}
           </div>
+        </div>
+
+        <div class="form-divider">
+          <div class="heading">Notizen</div>
+          ${fieldTextarea({ label: "Sonstige Notizen", name: "notiz", value: v.notiz, placeholder: "z. B. Ersatzschlüssel bei Nachbarn, Winterreifen im Keller, besondere Eigenheiten…" })}
         </div>
 
         <div class="form-actions">
