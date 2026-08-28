@@ -369,6 +369,23 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
     if (isNaN(d)) return "—";
     return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
   }
+  function fmtMonthYear(yyyyMM) {
+    if (!yyyyMM) return "—";
+    const parts = yyyyMM.split("-");
+    if (parts.length < 2) return "—";
+    const d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+    if (isNaN(d)) return "—";
+    return d.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+  }
+  // TÜV/HU wird als Monat+Jahr angegeben; als Frist gilt der letzte Tag des Monats.
+  function tuvDeadlineISO(yyyyMM) {
+    if (!yyyyMM) return null;
+    const parts = yyyyMM.split("-");
+    if (parts.length < 2) return null;
+    const y = Number(parts[0]), m = Number(parts[1]);
+    const lastDay = new Date(y, m, 0).getDate();
+    return `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  }
   function fmtEUR(n) {
     return (Number(n) || 0).toLocaleString("de-DE", { style: "currency", currency: "EUR" });
   }
@@ -436,13 +453,17 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
     return icon("car", opts);
   }
 
-  function plaketteSVG(date, size) {
+  function plaketteSVG(monthStr, size) {
     size = size || 64;
-    const status = statusFor(date, 60);
+    const deadline = tuvDeadlineISO(monthStr);
+    const status = statusFor(deadline, 60);
     const color = STATUS_COLOR[status];
-    const d = date ? new Date(date + "T00:00:00") : null;
-    const month = d && !isNaN(d) ? d.getMonth() + 1 : null;
-    const year = d && !isNaN(d) ? String(d.getFullYear()).slice(-2) : "––";
+    let year = "––", month = null;
+    if (monthStr) {
+      const parts = monthStr.split("-");
+      if (parts[0]) year = parts[0].slice(-2);
+      if (parts[1]) month = Number(parts[1]);
+    }
     return `<div style="width:${size}px;height:${size}px;flex-shrink:0;">
       <svg width="${size}" height="${size}" viewBox="0 0 100 100">
         <circle cx="50" cy="50" r="44" fill="${color}"/>
@@ -603,7 +624,7 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
     const meta = TYPE_META[v.type] || TYPE_META.Auto;
     const year = new Date().getFullYear();
     const total = costsForVehicleInYear(v.id, year);
-    const tuvStatus = statusFor(v.tuvDate, 60);
+    const tuvStatus = statusFor(tuvDeadlineISO(v.tuvDate), 60);
     const badge = meta.hasTuv ? plaketteSVG(v.tuvDate, 56) : typeBadge(v.type, 56);
     const statusHtml = meta.hasTuv
       ? statusPill(tuvStatus)
@@ -629,14 +650,14 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
     state.vehicles.forEach(v => {
       const meta = TYPE_META[v.type] || TYPE_META.Auto;
       const items = [];
-      if (meta.hasTuv) items.push(["TÜV / HU", v.tuvDate]);
-      items.push(["Versicherung", v.versFaelligkeit]);
-      items.push(["Kfz-Steuer", v.steuerFaelligkeit]);
-      items.forEach(([label, date]) => {
-        if (date && statusFor(date, 60) !== "none") upcoming.push({ label, date, veh: v });
+      if (meta.hasTuv) items.push({ label: "TÜV / HU", sortDate: tuvDeadlineISO(v.tuvDate), displayDate: fmtMonthYear(v.tuvDate) });
+      items.push({ label: "Versicherung", sortDate: v.versFaelligkeit, displayDate: fmtDate(v.versFaelligkeit) });
+      items.push({ label: "Kfz-Steuer", sortDate: v.steuerFaelligkeit, displayDate: fmtDate(v.steuerFaelligkeit) });
+      items.forEach(it => {
+        if (it.sortDate && statusFor(it.sortDate, 60) !== "none") upcoming.push({ ...it, veh: v });
       });
     });
-    upcoming.sort((a, b) => (daysUntil(a.date) ?? 9999) - (daysUntil(b.date) ?? 9999));
+    upcoming.sort((a, b) => (daysUntil(a.sortDate) ?? 9999) - (daysUntil(b.sortDate) ?? 9999));
     const upcomingTop = upcoming.slice(0, 5);
 
     let upcomingHtml = "";
@@ -644,12 +665,12 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
       upcomingHtml = `<div style="margin-bottom:22px;">
         <div class="section-label">Anstehend</div>
         ${upcomingTop.map(u => {
-          const st = statusFor(u.date, 60);
+          const st = statusFor(u.sortDate, 60);
           const color = STATUS_COLOR[st];
           return `<div class="upcoming-item" data-action="open-vehicle" data-id="${u.veh.id}" style="border-left:3px solid ${color};">
             ${icon("alertTriangle", { size: 15, color })}
             <div class="label">${esc(u.label)} · ${esc(u.veh.name || u.veh.brand)}</div>
-            <div class="date">${fmtDate(u.date)}</div>
+            <div class="date">${u.displayDate}</div>
           </div>`;
         }).join("")}
       </div>`;
@@ -713,10 +734,10 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
     const maxCat = Math.max(1, ...byCat.map(([, v2]) => v2));
 
     const termine = [];
-    if (meta.hasTuv) termine.push({ label: "TÜV / HU", date: v.tuvDate, ic: "shield" });
-    termine.push({ label: "Versicherung" + (v.versAnbieter ? " · " + esc(v.versAnbieter) : ""), date: v.versFaelligkeit, ic: "fileText" });
-    termine.push({ label: "Kfz-Steuer", date: v.steuerFaelligkeit, ic: "receipt" });
-    const termineFiltered = termine.filter(t => t.date).sort((a, b) => (daysUntil(a.date) ?? 9999) - (daysUntil(b.date) ?? 9999));
+    if (meta.hasTuv) termine.push({ label: "TÜV / HU", sortDate: tuvDeadlineISO(v.tuvDate), displayDate: fmtMonthYear(v.tuvDate), ic: "shield" });
+    termine.push({ label: "Versicherung" + (v.versAnbieter ? " · " + esc(v.versAnbieter) : ""), sortDate: v.versFaelligkeit, displayDate: fmtDate(v.versFaelligkeit), ic: "fileText" });
+    termine.push({ label: "Kfz-Steuer", sortDate: v.steuerFaelligkeit, displayDate: fmtDate(v.steuerFaelligkeit), ic: "receipt" });
+    const termineFiltered = termine.filter(t => t.sortDate).sort((a, b) => (daysUntil(a.sortDate) ?? 9999) - (daysUntil(b.sortDate) ?? 9999));
 
     const tabs = [
       ["uebersicht", "Übersicht"], ["termine", "Termine"], ["kosten", "Kosten"], ["werkstatt", "Werkstatt"]
@@ -736,8 +757,8 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
           ${plaketteSVG(v.tuvDate, 64)}
           <div>
             <div class="section-label" style="margin-bottom:2px;">Nächste HU</div>
-            <div style="font-family:var(--font-display);font-size:18px;font-weight:700;">${fmtDate(v.tuvDate)}</div>
-            ${statusPill(statusFor(v.tuvDate, 60))}
+            <div style="font-family:var(--font-display);font-size:18px;font-weight:700;">${fmtMonthYear(v.tuvDate)}</div>
+            ${statusPill(statusFor(tuvDeadlineISO(v.tuvDate), 60))}
           </div>
         </div>` : ""}
         <div class="section-label">Kosten nach Kategorie</div>
@@ -761,13 +782,13 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
       body = termineFiltered.length === 0
         ? `<div style="color:var(--muted);font-size:13px;margin-bottom:12px;">Keine Termine hinterlegt. Über „Bearbeiten“ ergänzen.</div>`
         : termineFiltered.map(t => {
-            const st = statusFor(t.date, 60);
+            const st = statusFor(t.sortDate, 60);
             const color = STATUS_COLOR[st];
             return `<div class="termin-item">
               <div class="termin-icon" style="background:${color}22;color:${color};">${icon(t.ic, { size: 18, color })}</div>
               <div style="flex:1;">
                 <div class="termin-label">${t.label}</div>
-                <div class="termin-date">${fmtDate(t.date)} · ${daysUntil(t.date)} Tage</div>
+                <div class="termin-date">${t.displayDate} · ${daysUntil(t.sortDate)} Tage</div>
               </div>
               ${statusPill(st)}
             </div>`;
@@ -859,7 +880,7 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "DEIN_API_KEY") {
 
         <div id="tuv-section" class="form-divider" style="display:${meta.hasTuv ? "block" : "none"};">
           <div class="heading">TÜV / HU</div>
-          ${fieldInput({ label: "Nächste HU fällig am", name: "tuvDate", value: v.tuvDate, type: "date" })}
+          ${fieldInput({ label: "Nächste HU fällig (Monat/Jahr)", name: "tuvDate", value: (v.tuvDate || "").slice(0, 7), type: "month" })}
         </div>
 
         <div class="form-divider">
